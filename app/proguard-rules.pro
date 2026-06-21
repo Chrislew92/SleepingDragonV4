@@ -1,0 +1,1 @@
+# Sleeping Dragon V4 — default ProGuard rules (release minify disabled)

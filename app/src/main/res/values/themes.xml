@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SleepingDragon" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/dragon_gold</item>
+        <item name="colorPrimaryVariant">@color/dragon_surface</item>
+        <item name="colorOnPrimary">@color/dragon_bg</item>
+        <item name="android:statusBarColor">@color/dragon_bg</item>
+        <item name="android:navigationBarColor">@color/dragon_bg</item>
+        <item name="android:windowBackground">@color/dragon_bg</item>
+    </style>
+</resources>

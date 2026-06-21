@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="dragon_bg">#0D0F14</color>
+    <color name="dragon_surface">#1A1F2B</color>
+    <color name="dragon_gold">#C9A227</color>
+    <color name="dragon_text">#E8E6E1</color>
+    <color name="dragon_muted">#8A8F9A</color>
+    <color name="ic_launcher_background">#1A1F2B</color>
+</resources>
