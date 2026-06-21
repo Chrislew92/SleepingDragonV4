@@ -249,6 +249,7 @@ class GameEngine(context: Context) {
         isPaused = false
         sleepStartedAtMs = 0L
         eventLog.clear()
+        goodFairy.onCommandSuccess()
         persist()
     }
 

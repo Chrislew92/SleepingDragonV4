@@ -13,6 +13,5 @@ data class StoryNode(
     val narratorText: String,
     val choices: List<StoryChoice> = emptyList(),
     val isPaywall: Boolean = false,
-    val isCliffhanger: Boolean = false,
-    val autoContinueTo: String? = null
+    val isCliffhanger: Boolean = false
 )

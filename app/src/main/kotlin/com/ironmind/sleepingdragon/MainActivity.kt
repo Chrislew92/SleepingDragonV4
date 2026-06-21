@@ -27,6 +27,8 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
     private var resumeListeningOnForeground = false
     private var awaitingAdvanceNarration: String? = null
     private var processingCommand = false
+    private var lastHandledInput = ""
+    private var lastHandledAt = 0L
 
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -85,6 +87,8 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
     private fun beginBedMode() {
         sessionActive = true
         processingCommand = false
+        lastHandledInput = ""
+        lastHandledAt = 0L
         partialText.text = ""
         fairyText.text = ""
         storyText.text = gameEngine.currentNarration()
@@ -112,7 +116,16 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
 
     private fun dispatchCommand(rawInput: String) {
         if (processingCommand || !sessionActive) return
+
+        val normalized = rawInput.lowercase().trim()
+        if (normalized.isBlank()) return
+
+        val now = System.currentTimeMillis()
+        if (normalized == lastHandledInput && now - lastHandledAt < 2_000) return
+
         processingCommand = true
+        lastHandledInput = normalized
+        lastHandledAt = now
 
         val response = commandRegistry.processCommand(rawInput)
         handleGameResponse(response)
@@ -126,21 +139,32 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
         voiceEngine.setGameMode(gameEngine.isGameMode())
 
         awaitingAdvanceNarration = response.autoAdvanceNarration
-        voiceEngine.speak(buildSpeakQueue(response)) {
+        val speakText = buildSpeakQueue(response)
+        if (speakText.isBlank()) {
             processingCommand = false
-            if (!sessionActive) return@speak
+            if (sessionActive) voiceEngine.startListening()
+            return
+        }
 
-            val advance = awaitingAdvanceNarration
-            if (advance != null) {
-                awaitingAdvanceNarration = null
-                storyText.text = advance
-                voiceEngine.speak(advance) {
-                    processingCommand = false
-                    if (sessionActive) voiceEngine.startListening()
-                }
-            } else if (sessionActive) {
-                voiceEngine.startListening()
+        voiceEngine.speak(speakText) {
+            finishResponseAndListen()
+        }
+    }
+
+    private fun finishResponseAndListen() {
+        processingCommand = false
+        if (!sessionActive) return
+
+        val advance = awaitingAdvanceNarration
+        if (advance != null) {
+            awaitingAdvanceNarration = null
+            storyText.text = advance
+            voiceEngine.speak(advance) {
+                processingCommand = false
+                if (sessionActive) voiceEngine.startListening()
             }
+        } else {
+            voiceEngine.startListening()
         }
     }
 
