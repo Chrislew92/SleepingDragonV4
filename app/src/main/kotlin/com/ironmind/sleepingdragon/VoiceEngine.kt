@@ -10,6 +10,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.ironmind.sleepingdragon.core.AppConstants
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -25,10 +26,10 @@ class VoiceEngine(private val context: Context) {
     }
 
     companion object {
-        private const val ECHO_GUARD_MS = 320L
-        private const val SESSION_RENEWAL_MS = 40L
-        private const val PARTIAL_CONFIRM_MS = 180L
-        private const val ERROR_RETRY_MS = 400L
+        private const val ECHO_GUARD_MS = AppConstants.ECHO_GUARD_MS
+        private const val SESSION_RENEWAL_MS = AppConstants.SESSION_RENEWAL_MS
+        private const val PARTIAL_CONFIRM_MS = AppConstants.PARTIAL_CONFIRM_MS
+        private const val ERROR_RETRY_MS = AppConstants.ERROR_RETRY_MS
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())

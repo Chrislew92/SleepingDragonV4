@@ -11,8 +11,8 @@ android {
         applicationId "com.ironmind.sleepingdragon"
         minSdk 26
         targetSdk 34
-        versionCode 4100
-        versionName "4.1.0"
+        versionCode 4200
+        versionName "4.2.0"
     }
 
     buildTypes {
@@ -34,4 +34,5 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
+    testImplementation 'junit:junit:4.13.2'
 }

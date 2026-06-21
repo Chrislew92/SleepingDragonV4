@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sleeping Dragon</string>
-    <string name="subtitle">V4.1.0 — Bed Mode Voice RPG</string>
+    <string name="subtitle">V4.2.0 — Bed Mode Voice RPG</string>
     <string name="listen_button">Erzähler starten</string>
     <string name="reset_button">Neu starten</string>
     <string name="listening">Mikro hört zu…</string>

@@ -1,61 +1,42 @@
 package com.ironmind.sleepingdragon
 
-import android.content.Context
-import android.content.SharedPreferences
+import com.ironmind.sleepingdragon.core.AppConstants
+import com.ironmind.sleepingdragon.data.GameSave
+import com.ironmind.sleepingdragon.data.GameSaveStore
+import com.ironmind.sleepingdragon.domain.GameResponse
+import com.ironmind.sleepingdragon.domain.VoiceCommands
 
-data class GameResponse(
-    val displayText: String,
-    val speakText: String,
-    val autoAdvanceNarration: String? = null,
-    val fairyWhisper: String? = null
-)
-
-class GameEngine(context: Context) {
-
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("sleeping_dragon_v4", Context.MODE_PRIVATE)
+class GameEngine(private val saveRepository: GameSaveStore) {
 
     val goodFairy = GoodFairy()
 
-    var playerName: String = prefs.getString("player_name", "Wanderer") ?: "Wanderer"
-        private set
+    private var save: GameSave = saveRepository.load()
 
-    var xp: Int = prefs.getInt("xp", 0)
-        private set
-
-    var currentNodeId: String = prefs.getString("node_id", "splash") ?: "splash"
-        private set
-
-    var isPaused: Boolean = false
-        private set
-
-    private var sleepStartedAtMs: Long = prefs.getLong("sleep_started_at", 0L)
-
-    private val eventLog = mutableListOf<String>()
-
-    init {
-        eventLog.addAll(
-            prefs.getString("event_log", "")?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
-        )
-    }
+    val playerName: String get() = save.playerName
+    val xp: Int get() = save.xp
+    val currentNodeId: String get() = save.nodeId
+    val isPaused: Boolean get() = save.isPaused
 
     fun currentNode(): StoryNode =
-        StoryRepository.nodes[currentNodeId] ?: StoryRepository.nodes.getValue("splash")
+        StoryRepository.nodes[save.nodeId] ?: StoryRepository.nodes.getValue("splash")
 
     fun currentNarration(): String = formatText(currentNode().narratorText)
 
     fun activeChoiceHints(): List<String> = currentNode().choices.flatMap { it.voiceHints }
 
-    fun isGameMode(): Boolean = currentNodeId != "splash"
+    fun isGameMode(): Boolean = save.nodeId != "splash"
 
     fun processInput(rawInput: String): GameResponse {
-        if (isPaused) {
-            if (matchesAny(rawInput, listOf("weiter", "fortsetzen", "resume"))) {
-                isPaused = false
+        val input = rawInput.lowercase().trim()
+
+        if (save.isPaused) {
+            if (matchesAny(input, VoiceCommands.resume)) {
+                save = save.copy(isPaused = false)
+                persist()
                 goodFairy.onCommandSuccess()
                 return GameResponse(
                     displayText = "Fortgesetzt.",
-                    speakText = "Wir machen weiter.",
+                    speakText = "Fortgesetzt. Wir machen weiter.",
                     autoAdvanceNarration = currentNarration()
                 )
             }
@@ -65,43 +46,41 @@ class GameEngine(context: Context) {
             )
         }
 
-        val input = rawInput.lowercase().trim()
-        if (input.isBlank()) {
-            return unrecognized("")
-        }
+        if (input.isBlank()) return unrecognized("")
 
         when {
-            matchesAny(input, listOf("pause", "stopp", "halt")) -> {
-                isPaused = true
+            matchesAny(input, VoiceCommands.pause) -> {
+                save = save.copy(isPaused = true)
+                persist()
                 goodFairy.onCommandSuccess()
                 return GameResponse(
                     displayText = "Pausiert.",
                     speakText = "Pausiert. Sage Weiter, wenn du bereit bist."
                 )
             }
-            matchesAny(input, listOf("nochmal", "wiederholen", "repeat")) -> {
+            matchesAny(input, VoiceCommands.repeat) -> {
                 goodFairy.onCommandSuccess()
                 val text = currentNarration()
                 return GameResponse(displayText = text, speakText = text)
             }
-            matchesAny(input, listOf("zusammenfassen", "recap", "zusammenfassung")) -> {
+            matchesAny(input, VoiceCommands.summary) -> {
                 goodFairy.onCommandSuccess()
-                val summary = if (eventLog.isEmpty()) {
+                val summary = if (save.eventLog.isEmpty()) {
                     "Noch keine Ereignisse. Sage Weiter."
                 } else {
-                    "Deine letzten Schritte: " + eventLog.takeLast(5).joinToString(". ")
+                    "Deine letzten Schritte: " + save.eventLog.takeLast(5).joinToString(". ")
                 }
                 return GameResponse(displayText = summary, speakText = summary)
             }
-            matchesAny(input, listOf("status", "fortschritt", "xp")) -> {
+            matchesAny(input, VoiceCommands.status) -> {
                 goodFairy.onCommandSuccess()
                 val node = currentNode()
                 val text =
-                    "Sleeping Dragon V4.1.0. Kapitel ${node.chapter}. " +
-                    "XP: $xp. Name: $playerName. Weisheit der Fee: ${goodFairy.wisdom()}."
+                    "Sleeping Dragon ${AppConstants.VERSION_NAME}. Kapitel ${node.chapter}. " +
+                    "XP: ${save.xp}. Name: ${save.playerName}. Weisheit der Fee: ${goodFairy.wisdom()}."
                 return GameResponse(displayText = text, speakText = text)
             }
-            matchesAny(input, listOf("hilfe", "befehle", "help")) -> {
+            matchesAny(input, VoiceCommands.help) -> {
                 goodFairy.onCommandSuccess()
                 val hints = activeChoiceHints().take(2).joinToString(" oder ")
                 val text = if (hints.isBlank()) {
@@ -114,11 +93,11 @@ class GameEngine(context: Context) {
         }
 
         extractPlayerName(rawInput)?.let { name ->
-            playerName = name
+            save = save.copy(playerName = name)
             persist()
             goodFairy.onCommandSuccess()
-            val text = "Verstanden. Ich nenne dich $playerName."
-            logEvent("Name gesetzt: $playerName")
+            val text = "Verstanden. Ich nenne dich $name."
+            logEvent("Name gesetzt: $name")
             return GameResponse(
                 displayText = text,
                 speakText = text,
@@ -126,8 +105,7 @@ class GameEngine(context: Context) {
             )
         }
 
-        val node = currentNode()
-        val choice = findChoice(node, input)
+        val choice = findChoice(currentNode(), input)
         if (choice != null) {
             goodFairy.onCommandSuccess()
             return applyChoice(choice)
@@ -157,42 +135,44 @@ class GameEngine(context: Context) {
             return wakeFromSleep()
         }
 
+        var nextSave = save.copy(xp = save.xp + choice.xpReward)
         if (choice.nextNodeId == "sleep") {
-            sleepStartedAtMs = System.currentTimeMillis()
-            persist()
+            nextSave = nextSave.copy(sleepStartedAtMs = System.currentTimeMillis())
         }
 
-        xp += choice.xpReward
         val responseText = formatText(choice.response)
-        logEvent(responseText)
+        nextSave = logEventOn(nextSave, responseText)
 
         choice.nextNodeId?.let { nextId ->
-            currentNodeId = nextId
+            nextSave = nextSave.copy(nodeId = nextId)
+            save = nextSave
             persist()
-            val nextNarration = currentNarration()
             return GameResponse(
                 displayText = responseText,
                 speakText = responseText,
-                autoAdvanceNarration = nextNarration
+                autoAdvanceNarration = currentNarration()
             )
         }
 
+        save = nextSave
         persist()
         return GameResponse(displayText = responseText, speakText = responseText)
     }
 
     private fun wakeFromSleep(): GameResponse {
-        val dreamXp = if (sleepStartedAtMs > 0L) {
-            DreamXp.calculate(sleepStartedAtMs)
+        val dreamXp = if (save.sleepStartedAtMs > 0L) {
+            DreamXp.calculate(save.sleepStartedAtMs)
         } else {
             300
         }
-        xp += dreamXp
-        sleepStartedAtMs = 0L
-        currentNodeId = "l8_paywall"
+        save = save.copy(
+            xp = save.xp + dreamXp,
+            sleepStartedAtMs = 0L,
+            nodeId = "l8_paywall"
+        )
         persist()
 
-        val message = DreamXp.morningMessage(dreamXp, playerName)
+        val message = DreamXp.morningMessage(dreamXp, save.playerName)
         logEvent(message)
         return GameResponse(
             displayText = message,
@@ -220,46 +200,45 @@ class GameEngine(context: Context) {
             Regex("""name ist\s+(.+)""", RegexOption.IGNORE_CASE)
         )
         for (pattern in patterns) {
-            val match = pattern.find(input.trim())
-            if (match != null) {
-                val name = match.groupValues[1].trim()
-                if (name.isNotBlank()) return name.take(24)
-            }
+            val match = pattern.find(input.trim()) ?: continue
+            val name = match.groupValues[1].trim()
+            if (name.isNotBlank()) return name.take(AppConstants.MAX_PLAYER_NAME_LENGTH)
         }
         return null
     }
 
     private fun formatText(template: String): String =
-        template.replace("{name}", playerName)
+        template.replace("{name}", save.playerName)
 
     private fun matchesAny(input: String, triggers: List<String>): Boolean =
         triggers.any { input.contains(it) }
 
     private fun logEvent(text: String) {
-        eventLog.add(text.take(120))
-        if (eventLog.size > 20) {
-            eventLog.removeAt(0)
+        val log = save.eventLog.toMutableList()
+        log.add(text.take(120))
+        while (log.size > AppConstants.MAX_EVENT_LOG_ENTRIES) {
+            log.removeAt(0)
         }
+        save = save.copy(eventLog = log)
     }
 
-    fun reset() {
-        playerName = "Wanderer"
-        xp = 0
-        currentNodeId = "splash"
-        isPaused = false
-        sleepStartedAtMs = 0L
-        eventLog.clear()
-        goodFairy.onCommandSuccess()
-        persist()
+    private fun logEventOn(base: GameSave, text: String): GameSave {
+        val log = base.eventLog.toMutableList()
+        log.add(text.take(120))
+        while (log.size > AppConstants.MAX_EVENT_LOG_ENTRIES) {
+            log.removeAt(0)
+        }
+        return base.copy(eventLog = log)
     }
 
     private fun persist() {
-        prefs.edit()
-            .putString("player_name", playerName)
-            .putInt("xp", xp)
-            .putString("node_id", currentNodeId)
-            .putLong("sleep_started_at", sleepStartedAtMs)
-            .putString("event_log", eventLog.joinToString("|||"))
-            .apply()
+        saveRepository.save(save)
+    }
+
+    fun reset() {
+        save = GameSave()
+        goodFairy.onCommandSuccess()
+        saveRepository.clear()
+        saveRepository.save(save)
     }
 }

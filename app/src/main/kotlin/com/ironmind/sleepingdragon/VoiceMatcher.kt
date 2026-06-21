@@ -1,18 +1,8 @@
 package com.ironmind.sleepingdragon
 
-object VoiceMatcher {
+import com.ironmind.sleepingdragon.domain.VoiceCommands
 
-    private val bargeInTriggers = listOf(
-        "drache erwache",
-        "start",
-        "weiter",
-        "pause",
-        "stopp",
-        "halt",
-        "status",
-        "nochmal",
-        "hilfe"
-    )
+object VoiceMatcher {
 
     fun normalize(text: String): String =
         text.lowercase()
@@ -30,7 +20,7 @@ object VoiceMatcher {
 
         val candidates = buildList {
             addAll(choiceHints.map { normalize(it) })
-            if (includeBargeIn) addAll(bargeInTriggers)
+            if (includeBargeIn) addAll(VoiceCommands.bargeIn)
         }.distinct().sortedByDescending { it.length }
 
         return candidates.firstOrNull { hint ->

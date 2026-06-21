@@ -10,12 +10,13 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.ironmind.sleepingdragon.core.BedModeSession
+import com.ironmind.sleepingdragon.core.SessionPhase
+import com.ironmind.sleepingdragon.core.SessionUiState
 
-class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
+class MainActivity : AppCompatActivity(), BedModeSession.Observer {
 
-    private lateinit var voiceEngine: VoiceEngine
-    private lateinit var gameEngine: GameEngine
-    private lateinit var commandRegistry: CommandRegistry
+    private lateinit var session: BedModeSession
 
     private lateinit var micStatusText: TextView
     private lateinit var partialText: TextView
@@ -23,18 +24,11 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
     private lateinit var xpText: TextView
     private lateinit var fairyText: TextView
 
-    private var sessionActive = false
-    private var resumeListeningOnForeground = false
-    private var awaitingAdvanceNarration: String? = null
-    private var processingCommand = false
-    private var lastHandledInput = ""
-    private var lastHandledAt = 0L
-
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            beginBedMode()
+            session.start()
         } else {
             storyText.text = getString(R.string.mic_denied)
             micStatusText.text = getString(R.string.mic_off)
@@ -53,199 +47,88 @@ class MainActivity : AppCompatActivity(), VoiceEngine.Listener {
         xpText = findViewById(R.id.xpText)
         fairyText = findViewById(R.id.fairyText)
 
-        gameEngine = GameEngine(this)
-        commandRegistry = CommandRegistry(gameEngine)
-        voiceEngine = VoiceEngine(this)
-        voiceEngine.choiceHintsProvider = { gameEngine.activeChoiceHints() }
-        voiceEngine.setListener(this)
+        session = BedModeSession(this)
+        session.setObserver(this)
 
         findViewById<Button>(R.id.listenButton).setOnClickListener {
-            ensureMicAndBegin()
+            ensureMicAndStart()
         }
         findViewById<Button>(R.id.resetButton).setOnClickListener {
-            voiceEngine.pause()
-            gameEngine.reset()
-            updateXp()
-            beginBedMode()
+            session.resetAndStart()
         }
 
-        updateXp()
-        ensureMicAndBegin()
+        ensureMicAndStart()
     }
 
-    private fun ensureMicAndBegin() {
+    private fun ensureMicAndStart() {
         when {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED -> beginBedMode()
+            ) == PackageManager.PERMISSION_GRANTED -> session.start()
 
             else -> requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
-    private fun beginBedMode() {
-        sessionActive = true
-        processingCommand = false
-        lastHandledInput = ""
-        lastHandledAt = 0L
-        partialText.text = ""
-        fairyText.text = ""
-        storyText.text = gameEngine.currentNarration()
-        voiceEngine.setGameMode(gameEngine.isGameMode())
-        updateXp()
-        narrate(gameEngine.currentNarration())
+    override fun onUiStateChanged(state: SessionUiState) {
+        storyText.text = state.storyText.ifBlank { getString(R.string.hint) }
+        partialText.text = state.partialText
+        fairyText.text = state.fairyText
+        xpText.text = state.xpLine.ifBlank {
+            getString(
+                R.string.xp_status,
+                session.gameEngine.xp,
+                session.gameEngine.currentNode().chapter,
+                session.gameEngine.playerName
+            )
+        }
+        renderMicStatus(state)
     }
 
-    private fun narrate(text: String, thenListen: Boolean = true) {
-        storyText.text = text
-        voiceEngine.setGameMode(gameEngine.isGameMode())
-        voiceEngine.speak(text) {
-            if (!sessionActive) return@speak
-            val advance = awaitingAdvanceNarration
-            if (advance != null) {
-                awaitingAdvanceNarration = null
-                narrate(advance, thenListen)
-                return@speak
+    private fun renderMicStatus(state: SessionUiState) {
+        when {
+            state.phase is SessionPhase.Error -> {
+                micStatusText.text = getString(R.string.mic_off)
+                micStatusText.setTextColor(Color.parseColor("#E05A5A"))
             }
-            if (thenListen) {
-                voiceEngine.startListening()
+            state.isNarratorSpeaking -> {
+                micStatusText.text = getString(R.string.narrator_speaking)
+                micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_text))
             }
-        }
-    }
-
-    private fun dispatchCommand(rawInput: String) {
-        if (processingCommand || !sessionActive) return
-
-        val normalized = rawInput.lowercase().trim()
-        if (normalized.isBlank()) return
-
-        val now = System.currentTimeMillis()
-        if (normalized == lastHandledInput && now - lastHandledAt < 2_000) return
-
-        processingCommand = true
-        lastHandledInput = normalized
-        lastHandledAt = now
-
-        val response = commandRegistry.processCommand(rawInput)
-        handleGameResponse(response)
-    }
-
-    private fun handleGameResponse(response: GameResponse) {
-        updateXp()
-        partialText.text = ""
-        storyText.text = response.displayText
-        fairyText.text = response.fairyWhisper.orEmpty()
-        voiceEngine.setGameMode(gameEngine.isGameMode())
-
-        awaitingAdvanceNarration = response.autoAdvanceNarration
-        val speakText = buildSpeakQueue(response)
-        if (speakText.isBlank()) {
-            processingCommand = false
-            if (sessionActive) voiceEngine.startListening()
-            return
-        }
-
-        voiceEngine.speak(speakText) {
-            finishResponseAndListen()
-        }
-    }
-
-    private fun finishResponseAndListen() {
-        processingCommand = false
-        if (!sessionActive) return
-
-        val advance = awaitingAdvanceNarration
-        if (advance != null) {
-            awaitingAdvanceNarration = null
-            storyText.text = advance
-            voiceEngine.speak(advance) {
-                processingCommand = false
-                if (sessionActive) voiceEngine.startListening()
+            state.isMicActive -> {
+                micStatusText.text = getString(R.string.mic_active)
+                micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_gold))
             }
-        } else {
-            voiceEngine.startListening()
-        }
-    }
-
-    private fun buildSpeakQueue(response: GameResponse): String {
-        val fairy = response.fairyWhisper
-        return if (fairy.isNullOrBlank()) {
-            response.speakText
-        } else {
-            "${response.speakText} $fairy"
-        }
-    }
-
-    private fun updateXp() {
-        val node = gameEngine.currentNode()
-        xpText.text = getString(
-            R.string.xp_status,
-            gameEngine.xp,
-            node.chapter,
-            gameEngine.playerName
-        )
-    }
-
-    override fun onListeningChanged(active: Boolean) {
-        if (active) {
-            micStatusText.text = getString(R.string.mic_active)
-            micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_gold))
-        } else if (!processingCommand) {
-            micStatusText.text = getString(R.string.mic_waiting)
-            micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_muted))
-        }
-    }
-
-    override fun onPartialResult(text: String) {
-        partialText.text = getString(R.string.partial_prefix, text)
-    }
-
-    override fun onEarlyCommand(text: String) {
-        partialText.text = getString(R.string.heard_prefix, text)
-        dispatchCommand(text)
-    }
-
-    override fun onFinalResult(text: String) {
-        partialText.text = getString(R.string.heard_prefix, text)
-        dispatchCommand(text)
-    }
-
-    override fun onError(message: String) {
-        partialText.text = message
-    }
-
-    override fun onSpeakingChanged(active: Boolean) {
-        if (active) {
-            micStatusText.text = getString(R.string.narrator_speaking)
-            micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_text))
+            state.phase is SessionPhase.Paused -> {
+                micStatusText.text = getString(R.string.mic_waiting)
+                micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_muted))
+            }
+            else -> {
+                micStatusText.text = getString(R.string.mic_waiting)
+                micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_muted))
+            }
         }
     }
 
     override fun onPause() {
-        resumeListeningOnForeground = sessionActive
-        sessionActive = false
-        voiceEngine.pause()
+        session.pause()
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        if (
-            resumeListeningOnForeground &&
-            ContextCompat.checkSelfPermission(
+        if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            sessionActive = true
-            voiceEngine.startListening(allowDuringSpeech = true)
+            session.resumeIfNeeded()
         }
     }
 
     override fun onDestroy() {
-        sessionActive = false
-        voiceEngine.shutdown()
+        session.destroy()
         super.onDestroy()
     }
 }
