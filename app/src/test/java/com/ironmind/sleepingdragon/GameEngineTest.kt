@@ -63,6 +63,16 @@ class GameEngineTest {
     }
 
     @Test
+    fun repeatedFailures_triggerFairyWhisper() {
+        engine.processInput("drache erwache")
+        engine.processInput("xyz")
+        engine.processInput("abc")
+        val third = engine.processInput("qwe")
+        assertTrue(third.fairyWhisper?.contains("Gute Fee") == true)
+        assertTrue(third.speakText.contains("nicht verstanden"))
+    }
+
+    @Test
     fun reset_clearsProgress() {
         engine.processInput("drache erwache")
         engine.reset()

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sleeping Dragon</string>
-    <string name="subtitle">V4.2.0 — Bed Mode Voice RPG</string>
+    <string name="subtitle">V4.2.1 — Bed Mode Voice RPG</string>
     <string name="listen_button">Erzähler starten</string>
     <string name="reset_button">Neu starten</string>
     <string name="listening">Mikro hört zu…</string>
@@ -10,7 +10,8 @@
     <string name="mic_active">MIKRO AKTIV</string>
     <string name="mic_waiting">Mikro bereit</string>
     <string name="mic_off">Mikro aus</string>
-    <string name="narrator_speaking">Erzähler spricht…</string>
+    <string name="narrator_speaking">Der alte Mann erzählt…</string>
+    <string name="fairy_speaking">Die Gute Fee flüstert…</string>
     <string name="partial_prefix">…%1$s</string>
     <string name="heard_prefix">Gehört: %1$s</string>
     <string name="xp_status">%1$d XP · Kapitel %2$d · %3$s</string>

@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import com.ironmind.sleepingdragon.core.BedModeSession
 import com.ironmind.sleepingdragon.core.SessionPhase
 import com.ironmind.sleepingdragon.core.SessionUiState
+import com.ironmind.sleepingdragon.domain.NarratorRole
 
 class MainActivity : AppCompatActivity(), BedModeSession.Observer {
 
@@ -91,6 +92,10 @@ class MainActivity : AppCompatActivity(), BedModeSession.Observer {
             state.phase is SessionPhase.Error -> {
                 micStatusText.text = getString(R.string.mic_off)
                 micStatusText.setTextColor(Color.parseColor("#E05A5A"))
+            }
+            state.isNarratorSpeaking && state.activeNarrator == NarratorRole.FAIRY -> {
+                micStatusText.text = getString(R.string.fairy_speaking)
+                micStatusText.setTextColor(ContextCompat.getColor(this, R.color.dragon_gold))
             }
             state.isNarratorSpeaking -> {
                 micStatusText.text = getString(R.string.narrator_speaking)

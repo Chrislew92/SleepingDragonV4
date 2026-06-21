@@ -11,6 +11,8 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.ironmind.sleepingdragon.core.AppConstants
+import com.ironmind.sleepingdragon.domain.NarratorRole
+import com.ironmind.sleepingdragon.domain.SpeakSegment
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -23,6 +25,7 @@ class VoiceEngine(private val context: Context) {
         fun onEarlyCommand(text: String)
         fun onError(message: String)
         fun onSpeakingChanged(active: Boolean)
+        fun onNarratorRoleChanged(role: NarratorRole?) {}
     }
 
     companion object {
@@ -45,6 +48,9 @@ class VoiceEngine(private val context: Context) {
     private var speechRecognizer: SpeechRecognizer? = null
     private var pendingSpeakComplete: (() -> Unit)? = null
     private var lastSpokenText: String = ""
+    private var sequenceGeneration = 0
+    private var activeSequenceGeneration = 0
+    private var activeNarratorRole: NarratorRole? = null
 
     var choiceHintsProvider: (() -> List<String>)? = null
 
@@ -108,7 +114,11 @@ class VoiceEngine(private val context: Context) {
         wakeMode = !active
     }
 
-    fun speak(text: String, onComplete: (() -> Unit)? = null) {
+    fun speak(
+        text: String,
+        role: NarratorRole = NarratorRole.OLD_MAN,
+        onComplete: (() -> Unit)? = null
+    ) {
         if (isShutdown.get()) return
 
         lastSpokenText = text
@@ -116,19 +126,79 @@ class VoiceEngine(private val context: Context) {
         cancelPartialConfirm()
 
         if (!isTtsReady.get()) {
-            mainHandler.postDelayed({ speak(text, onComplete) }, 250)
+            mainHandler.postDelayed({ speak(text, role, onComplete) }, 250)
             return
         }
 
+        applyNarratorRole(role)
         pendingSpeakComplete = onComplete
         val utteranceId = "sd_${System.currentTimeMillis()}"
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, role.volume)
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
 
         mainHandler.postDelayed({
-            if (!isShutdown.get() && keepAlive.get()) {
+            if (!isShutdown.get() && keepAlive.get() && activeSequenceGeneration == 0) {
                 startListening(allowDuringSpeech = true)
             }
         }, ECHO_GUARD_MS)
+    }
+
+    fun speakSequence(segments: List<SpeakSegment>, onComplete: (() -> Unit)? = null) {
+        if (isShutdown.get()) {
+            onComplete?.invoke()
+            return
+        }
+        val cleaned = segments.filter { it.text.isNotBlank() }
+        if (cleaned.isEmpty()) {
+            onComplete?.invoke()
+            return
+        }
+
+        val generation = ++sequenceGeneration
+        activeSequenceGeneration = generation
+        speakSegmentChain(cleaned, 0, generation) {
+            activeSequenceGeneration = 0
+            onComplete?.invoke()
+        }
+    }
+
+    private fun speakSegmentChain(
+        segments: List<SpeakSegment>,
+        index: Int,
+        generation: Int,
+        onComplete: (() -> Unit)?
+    ) {
+        if (isShutdown.get() || generation != sequenceGeneration) return
+
+        val segment = segments[index]
+        speak(segment.text, segment.role) {
+            if (isShutdown.get() || generation != sequenceGeneration) return@speak
+
+            val pauseAfter = segment.pauseAfterMs ?: defaultPauseAfter(segment.role, index, segments.size)
+            if (index + 1 < segments.size) {
+                mainHandler.postDelayed({
+                    speakSegmentChain(segments, index + 1, generation, onComplete)
+                }, pauseAfter)
+            } else {
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    private fun defaultPauseAfter(role: NarratorRole, index: Int, total: Int): Long =
+        when {
+            index >= total - 1 -> 0L
+            role == NarratorRole.OLD_MAN -> AppConstants.NARRATOR_BEAT_PAUSE_MS
+            else -> AppConstants.FAIRY_PRE_PAUSE_MS
+        }
+
+    private fun applyNarratorRole(role: NarratorRole) {
+        activeNarratorRole = role
+        notifyNarratorRole(role)
+        tts?.setPitch(role.pitch)
+        tts?.setSpeechRate(role.speechRate)
     }
 
     fun startListening(allowDuringSpeech: Boolean = false) {
@@ -163,9 +233,12 @@ class VoiceEngine(private val context: Context) {
     }
 
     fun stopSpeaking() {
+        sequenceGeneration++
+        activeSequenceGeneration = 0
         if (isSpeaking.getAndSet(false)) {
             tts?.stop()
             notifySpeaking(false)
+            notifyNarratorRole(null)
             pendingSpeakComplete?.invoke()
             pendingSpeakComplete = null
         }
@@ -194,11 +267,12 @@ class VoiceEngine(private val context: Context) {
     private fun finishSpeaking() {
         isSpeaking.set(false)
         notifySpeaking(false)
+        notifyNarratorRole(null)
         val callback = pendingSpeakComplete
         pendingSpeakComplete = null
         mainHandler.post {
             callback?.invoke()
-            if (keepAlive.get() && !isShutdown.get()) {
+            if (keepAlive.get() && !isShutdown.get() && activeSequenceGeneration == 0) {
                 mainHandler.postDelayed({ startListening() }, ECHO_GUARD_MS)
             }
         }
@@ -341,5 +415,10 @@ class VoiceEngine(private val context: Context) {
 
     private fun notifySpeaking(active: Boolean) {
         mainHandler.post { listener?.onSpeakingChanged(active) }
+    }
+
+    private fun notifyNarratorRole(role: NarratorRole?) {
+        activeNarratorRole = role
+        mainHandler.post { listener?.onNarratorRoleChanged(role) }
     }
 }

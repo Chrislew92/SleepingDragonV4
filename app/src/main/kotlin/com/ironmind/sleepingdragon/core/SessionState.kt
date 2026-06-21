@@ -1,5 +1,7 @@
 package com.ironmind.sleepingdragon.core
 
+import com.ironmind.sleepingdragon.domain.NarratorRole
+
 sealed class SessionPhase {
     data object Idle : SessionPhase()
     data object Narrating : SessionPhase()
@@ -17,5 +19,6 @@ data class SessionUiState(
     val xpLine: String = "",
     val fairyText: String = "",
     val isMicActive: Boolean = false,
-    val isNarratorSpeaking: Boolean = false
+    val isNarratorSpeaking: Boolean = false,
+    val activeNarrator: NarratorRole? = null
 )

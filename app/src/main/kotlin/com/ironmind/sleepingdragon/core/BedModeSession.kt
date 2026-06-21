@@ -5,7 +5,11 @@ import com.ironmind.sleepingdragon.CommandRegistry
 import com.ironmind.sleepingdragon.GameEngine
 import com.ironmind.sleepingdragon.VoiceEngine
 import com.ironmind.sleepingdragon.data.GameSaveRepository
+import android.os.Handler
+import android.os.Looper
 import com.ironmind.sleepingdragon.domain.GameResponse
+import com.ironmind.sleepingdragon.domain.NarrationPlan
+import com.ironmind.sleepingdragon.domain.NarratorRole
 
 class BedModeSession(context: Context) : VoiceEngine.Listener {
 
@@ -28,6 +32,7 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
     private var awaitingAdvanceNarration: String? = null
 
     private var uiState = SessionUiState()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     init {
         voiceEngine.choiceHintsProvider = { gameEngine.activeChoiceHints() }
@@ -92,7 +97,7 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
             )
         )
         voiceEngine.setGameMode(gameEngine.isGameMode())
-        voiceEngine.speak(text) {
+        voiceEngine.speak(text, NarratorRole.OLD_MAN) {
             if (!active) return@speak
             val advance = awaitingAdvanceNarration
             if (advance != null) {
@@ -125,7 +130,7 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
 
     private fun handleGameResponse(response: GameResponse) {
         awaitingAdvanceNarration = response.autoAdvanceNarration
-        val speakText = buildSpeakText(response)
+        val segments = NarrationPlan.segmentsForResponse(response)
 
         publish(
             uiState.copy(
@@ -137,12 +142,12 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
         )
         voiceEngine.setGameMode(gameEngine.isGameMode())
 
-        if (speakText.isBlank()) {
+        if (segments.isEmpty()) {
             finishResponseAndListen()
             return
         }
 
-        voiceEngine.speak(speakText) {
+        voiceEngine.speakSequence(segments) {
             finishResponseAndListen()
         }
     }
@@ -154,19 +159,17 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
         val advance = awaitingAdvanceNarration
         if (advance != null) {
             awaitingAdvanceNarration = null
-            publish(uiState.copy(storyText = advance))
-            voiceEngine.speak(advance) {
-                processingCommand = false
-                if (active) voiceEngine.startListening()
-            }
+            publish(uiState.copy(storyText = advance, fairyText = ""))
+            mainHandler.postDelayed({
+                if (!active) return@postDelayed
+                voiceEngine.speak(advance, NarratorRole.OLD_MAN) {
+                    processingCommand = false
+                    if (active) voiceEngine.startListening()
+                }
+            }, AppConstants.NARRATOR_SCENE_PAUSE_MS)
         } else {
             voiceEngine.startListening()
         }
-    }
-
-    private fun buildSpeakText(response: GameResponse): String {
-        val fairy = response.fairyWhisper
-        return if (fairy.isNullOrBlank()) response.speakText else "${response.speakText} $fairy"
     }
 
     private fun buildXpLine(): String {
@@ -220,8 +223,13 @@ class BedModeSession(context: Context) : VoiceEngine.Listener {
             uiState.copy(
                 phase = if (activeSpeaking) SessionPhase.Narrating else uiState.phase,
                 isNarratorSpeaking = activeSpeaking,
-                isMicActive = false
+                isMicActive = false,
+                activeNarrator = if (activeSpeaking) uiState.activeNarrator else null
             )
         )
+    }
+
+    override fun onNarratorRoleChanged(role: NarratorRole?) {
+        publish(uiState.copy(activeNarrator = role))
     }
 }
