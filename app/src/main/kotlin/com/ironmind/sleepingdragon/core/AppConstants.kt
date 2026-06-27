@@ -1,8 +1,9 @@
 package com.ironmind.sleepingdragon.core
 
 object AppConstants {
-    const val VERSION_NAME = "4.2.1"
-    const val VERSION_CODE = 4201
+    const val VERSION_NAME = "5.0.0-legacy"
+    const val VERSION_CODE = 5000
+    const val MAIN_REPO = "https://github.com/Chrislew92/SleepingDragon"
     const val PREFS_NAME = "sleeping_dragon_v4"
 
     const val ECHO_GUARD_MS = 320L
